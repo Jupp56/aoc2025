@@ -6,4 +6,4 @@ edition = "2024"
 [dependencies]
 
 [workspace]
-members = ["day1", "day5", "day9"]
+members = ["day1", "day5", "day9", "tightvec"]

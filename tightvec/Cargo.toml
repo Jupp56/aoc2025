@@ -1,7 +1,6 @@
 [package]
-name = "day9"
+name = "tightvec"
 version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-tightvec ={ path = "../tightvec"}

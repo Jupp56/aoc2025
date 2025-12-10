@@ -1,5 +1,7 @@
 use std::thread;
 
+use tightvec::TightVec;
+
 const MAX_THREADS: usize = 24;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -48,7 +50,7 @@ fn calculate_field_size(tiles: &[Coordinate]) -> (usize, usize) {
     (height, width)
 }
 
-fn check_rects(field: Vec<Vec<bool>>, mut rects: Vec<Rectangle>) {
+fn check_rects(field: Vec<TightVec>, mut rects: Vec<Rectangle>) {
     println!("Checking rects");
 
     let mut biggest_rect_found = 0;
@@ -72,7 +74,7 @@ fn check_rects(field: Vec<Vec<bool>>, mut rects: Vec<Rectangle>) {
             if threads[current_thread].is_finished() {
                 finished_threads += 1;
 
-                if finished_threads % 100 == 0 {
+                if finished_threads % 1000 == 0 {
                     println!(
                         "Result {finished_threads} in, still waiting for scheduling: {} rects",
                         rects.len()
@@ -82,7 +84,6 @@ fn check_rects(field: Vec<Vec<bool>>, mut rects: Vec<Rectangle>) {
                 let join_handle = if let Some(rect) = rects.pop()
                     && rect.size > biggest_rect_found
                 {
-                    
                     let mut swapper = scope.spawn(move || check_rect(field_r, rect));
                     std::mem::swap(&mut threads[current_thread], &mut swapper);
                     swapper
@@ -134,30 +135,32 @@ fn calculate_rectangles(mut red_tiles: Vec<Coordinate>) -> Vec<Rectangle> {
 }
 
 #[allow(clippy::needless_range_loop)] // Range loops are easier to read for me than iter() + skip()
-fn fill_outlined_shape(field: &mut [Vec<bool>]) {
+fn fill_outlined_shape(field: &mut [TightVec]) {
     println!("Filling inside");
 
     for row_index in 0..field.len() {
         let mut fill = false;
         let mut continuuous_section = false;
+        let mut uninterrupted_start = 0;
 
         for col_index in 0..field[0].len() {
-            if !fill && !field[row_index][col_index] {
+            if !fill && !field[row_index].index(col_index) {
                 continue;
-            } else if fill && !field[row_index][col_index] {
+            } else if fill && !field[row_index].index(col_index) {
                 if continuuous_section {
-                    if row_index != 0 && field[row_index - 1][col_index] {
-                        field[row_index][col_index] = true;
+                    if row_index != 0 && field[row_index - 1].index(col_index) {
                         continuuous_section = false;
+                    } else {
+                        field[row_index].fill_stretch(uninterrupted_start, col_index - 1, true);
                     }
-                } else {
-                    field[row_index][col_index] = true;
                 }
-            } else if fill && field[row_index][col_index] {
+            } else if fill && field[row_index].index(col_index) {
                 if !continuuous_section {
+                    field[row_index].fill_stretch(uninterrupted_start, col_index - 1, true);
                     fill = false
                 }
-            } else if !fill && field[row_index][col_index] {
+            } else if !fill && field[row_index].index(col_index) {
+                uninterrupted_start = col_index;
                 fill = true;
                 continuuous_section = true;
             }
@@ -166,7 +169,7 @@ fn fill_outlined_shape(field: &mut [Vec<bool>]) {
 }
 
 #[allow(clippy::needless_range_loop)] // Range loops are easier to read for me than iter() + skip()
-fn insert_red_and_connecting_tiles(red_tiles: &[Coordinate], field: &mut [Vec<bool>]) {
+fn insert_red_and_connecting_tiles(red_tiles: &[Coordinate], field: &mut [TightVec]) {
     println!("inserting red tiles and connection tiles");
 
     let mut last_tile: Option<Coordinate> = None;
@@ -175,40 +178,33 @@ fn insert_red_and_connecting_tiles(red_tiles: &[Coordinate], field: &mut [Vec<bo
             for row in last_tile.row.min(current_tile.row)..=last_tile.row.max(current_tile.row) {
                 for col in last_tile.col.min(current_tile.col)..=last_tile.col.max(current_tile.col)
                 {
-                    field[row][col] = true;
+                    field[row].set(col, true);
                 }
             }
         } else {
-            field[current_tile.row][current_tile.col] = true;
+            field[current_tile.row].set(current_tile.col, true);
         }
         last_tile = Some(*current_tile);
     }
 
     // make the last line end->start tile
-    for row in
-        last_tile.unwrap().row.min(red_tiles[0].row)..=last_tile.unwrap().row.max(red_tiles[0].row)
-    {
-        for col in last_tile.unwrap().col.min(red_tiles[0].col)
-            ..=last_tile.unwrap().col.max(red_tiles[0].col)
-        {
-            field[row][col] = true;
+    let first_tile = red_tiles[0];
+    let last_tile = last_tile.unwrap();
+
+    for row in last_tile.row.min(first_tile.row)..=last_tile.row.max(first_tile.row) {
+        for col in last_tile.col.min(first_tile.col)..=last_tile.col.max(first_tile.col) {
+            field[row].set(col, true);
         }
     }
 }
 
-#[allow(clippy::same_item_push)]
-// We need to tightly control the size of our vectors. I could not find any guarantees regarding the allocation size of the vector when doing what this lint suggests.
-fn allocate_field(height: usize, width: usize) -> Vec<Vec<bool>> {
+fn allocate_field(height: usize, width: usize) -> Vec<TightVec> {
     println!("Allocating field");
-    let mut field = Vec::new();
-    field.reserve_exact(height);
+    let mut field = Vec::with_capacity(height);
+
+    let line = TightVec::with_len_and_value(width, false);
     for _ in 0..height {
-        let mut line = Vec::new();
-        line.reserve_exact(width);
-        for _ in 0..width {
-            line.push(false);
-        }
-        field.push(line);
+        field.push(line.clone());
     }
     field
 }
@@ -230,10 +226,33 @@ fn parse_red_tiles(lines: Vec<&str>) -> Vec<Coordinate> {
 }
 
 #[allow(clippy::needless_range_loop)] // readability
-fn check_rect(field: &[Vec<bool>], rect: Rectangle) -> Option<usize> {
+fn check_rect(field: &[TightVec], rect: Rectangle) -> Option<usize> {
+    const REGISTER_WIDTH: usize = 64;
+
     for row in rect.upper_left.row..=rect.lower_right.row {
-        for col in rect.upper_left.col..=rect.lower_right.col {
-            if !field[row][col] {
+        let mut current = rect.upper_left.col;
+
+        while !current.is_multiple_of(REGISTER_WIDTH) {
+            if !field[row].index(current) {
+                return None;
+            }
+            current += 1;
+        }
+
+        while rect.lower_right.col - current > REGISTER_WIDTH {
+            let arr: [u8; REGISTER_WIDTH / 8] = field[row].get_raw()
+                [current / 8..(current / 8) + (REGISTER_WIDTH / 8)]
+                .try_into()
+                .unwrap();
+
+            if u64::from_be_bytes(arr) != u64::MAX {
+                return None;
+            }
+            current += REGISTER_WIDTH;
+        }
+
+        for col in current..=rect.lower_right.col {
+            if !field[row].index(col) {
                 return None;
             }
         }
