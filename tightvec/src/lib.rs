@@ -9,17 +9,12 @@ pub struct TightVec {
 
 impl TightVec {
     pub fn with_len_and_value(len: usize, value: bool) -> Self {
-        let mut v = Self::default();
+        let remainder = Self::rem(len);
 
-        if value {
-            v.inner = vec![StorageItem::MAX; len / ITEM_SIZE];
-        } else {
-            v.inner = vec![0; len / ITEM_SIZE];
-        }
-
-        let remainder = len % ITEM_SIZE;
-
-        v.len = len - remainder;
+        let mut v = Self {
+            inner: vec![Self::fill_value(value); len / ITEM_SIZE],
+            len: len - remainder,
+        };
 
         for _ in 0..remainder {
             v.push(value);
@@ -85,13 +80,8 @@ impl TightVec {
             current_index += 1;
         }
 
-        let fill_value = match value {
-            true => StorageItem::MAX,
-            false => 0,
-        };
-
         while end_index_inclusive - current_index > ITEM_SIZE {
-            *self.inner_index_mut(current_index) = fill_value;
+            *self.inner_index_mut(current_index) = Self::fill_value(value);
             current_index += ITEM_SIZE;
         }
 
@@ -116,8 +106,14 @@ impl TightVec {
         index % ITEM_SIZE
     }
 
+    /// the bit mask for one storage unit used to manipulate an item with the given external index
     fn mask_for_index(index: usize) -> StorageItem {
         1 << Self::rem(index)
+    }
+
+    /// the internal storage value to fill one entire storage unit with the input value provided
+    fn fill_value(value: bool) -> StorageItem {
+        if value { StorageItem::MAX } else { 0 }
     }
 }
 
