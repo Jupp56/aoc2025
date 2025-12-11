@@ -8,7 +8,7 @@ const MAX_THREADS: usize = 24;
 struct Rectangle {
     upper_left: Coordinate,
     lower_right: Coordinate,
-    size: usize,
+    area: usize,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -141,12 +141,12 @@ fn calculate_possible_rectangles(mut red_tiles: Vec<Coordinate>) -> Vec<Rectangl
                     row: tile.row.max(other_tile.row),
                     col: tile.col.max(other_tile.col),
                 },
-                size: height * width,
+                area: height * width,
             });
         }
     }
 
-    rects.sort_by(|r1, r2| r1.size.cmp(&r2.size));
+    rects.sort_by(|r1, r2| r1.area.cmp(&r2.area));
     rects
 }
 
@@ -180,7 +180,7 @@ fn check_rectangles(field: &[TightVec], mut rects: Vec<Rectangle>) {
                 }
 
                 let join_handle = if let Some(rect) = rects.pop()
-                    && rect.size > biggest_rect_found
+                    && rect.area > biggest_rect_found
                 {
                     let mut swapper = scope.spawn(move || check_rectangle(field, rect));
                     std::mem::swap(&mut threads[current_thread], &mut swapper);
@@ -265,5 +265,5 @@ fn check_rectangle(field: &[TightVec], rect: Rectangle) -> Option<usize> {
             }
         }
     }
-    Some(rect.size)
+    Some(rect.area)
 }
