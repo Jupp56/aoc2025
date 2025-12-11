@@ -92,7 +92,7 @@ impl TightVec {
 
         while end_index_inclusive - current_index > ITEM_SIZE {
             *self.inner_index_mut(current_index) = fill_value;
-            current_index += 64;
+            current_index += ITEM_SIZE;
         }
 
         while current_index <= end_index_inclusive {
